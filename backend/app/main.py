@@ -158,8 +158,12 @@ class ActualizarReporte(BaseModel):
 
 class Incumplimiento(BaseModel):
     inspeccion_id: int
-    descripcion: str
+    descripcion: str = Field(min_length=3)
     evidencia: str = ""
+
+
+class ActualizarIncumplimiento(BaseModel):
+    estado: str
 
 def rows(sql, params=()):
     with database() as con:
@@ -283,16 +287,77 @@ def listar_inspecciones():
 @app.post("/api/incumplimientos", status_code=201)
 def crear_incumplimiento(data: Incumplimiento):
     if not rows("SELECT id FROM inspecciones WHERE id=?", (data.inspeccion_id,)):
-        raise HTTPException(404, "InspecciÃ³n no encontrada")
+        raise HTTPException(404, "Inspeccion no encontrada")
+
     id = insert(
         "INSERT INTO incumplimientos(inspeccion_id,descripcion,evidencia) VALUES(?,?,?)",
-        (data.inspeccion_id,data.descripcion,data.evidencia)
+        (data.inspeccion_id, data.descripcion, data.evidencia)
     )
-    return {"id": id, "mensaje": "Incumplimiento registrado"}
+    return {
+        "id": id,
+        "estado": "Pendiente",
+        "mensaje": "Incumplimiento registrado"
+    }
+
 
 @app.get("/api/incumplimientos")
 def listar_incumplimientos():
-    return rows("SELECT * FROM incumplimientos ORDER BY id DESC")
+    return rows("""
+        SELECT i.id, i.inspeccion_id, i.descripcion, i.evidencia,
+               i.estado, ins.vendedor_id, v.nombre AS vendedor
+        FROM incumplimientos i
+        INNER JOIN inspecciones ins ON ins.id = i.inspeccion_id
+        INNER JOIN vendedores v ON v.id = ins.vendedor_id
+        ORDER BY i.id DESC
+    """)
+
+
+@app.patch("/api/incumplimientos/{id}")
+def actualizar_incumplimiento(id: int, data: ActualizarIncumplimiento):
+    estados = ["Pendiente", "En proceso", "Subsanado"]
+
+    if data.estado not in estados:
+        raise HTTPException(422, "Estado de seguimiento invalido")
+
+    with database() as con:
+        cur = con.execute(
+            "UPDATE incumplimientos SET estado=? WHERE id=?",
+            (data.estado, id)
+        )
+
+        if not cur.rowcount:
+            raise HTTPException(404, "Incumplimiento no encontrado")
+
+    return {
+        "mensaje": "Seguimiento actualizado",
+        "estado": data.estado
+    }
+
+
+@app.get("/api/vendedores/{vendedor_id}/incumplimientos")
+def historial_incumplimientos_vendedor(vendedor_id: int):
+    vendedor = rows(
+        "SELECT id, nombre FROM vendedores WHERE id=?",
+        (vendedor_id,)
+    )
+
+    if not vendedor:
+        raise HTTPException(404, "Vendedor no encontrado")
+
+    historial = rows("""
+        SELECT i.id, i.inspeccion_id, i.descripcion, i.evidencia,
+               i.estado, ins.created_at AS fecha_inspeccion
+        FROM incumplimientos i
+        INNER JOIN inspecciones ins ON ins.id = i.inspeccion_id
+        WHERE ins.vendedor_id = ?
+        ORDER BY i.id DESC
+    """, (vendedor_id,))
+
+    return {
+        "vendedor": vendedor[0]["nombre"],
+        "total_incumplimientos": len(historial),
+        "historial": historial
+    }
 
 # VDCP-11: Registro de proveedores
 @app.post("/api/proveedores", status_code=201)
