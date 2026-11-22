@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pathlib import Path
@@ -363,3 +363,28 @@ def migrate_database():
                 con.execute(sql)
 
 migrate_database()
+
+
+@app.get("/api/vendedores/{vendedor_id}/inspecciones")
+def historial_inspecciones_vendedor(vendedor_id: int):
+    vendedor = rows(
+        "SELECT id, nombre FROM vendedores WHERE id = ?",
+        (vendedor_id,)
+    )
+
+    if not vendedor:
+        raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+
+    inspecciones = rows("""
+        SELECT i.*, v.nombre AS vendedor
+        FROM inspecciones i
+        INNER JOIN vendedores v ON v.id = i.vendedor_id
+        WHERE i.vendedor_id = ?
+        ORDER BY i.created_at DESC, i.id DESC
+    """, (vendedor_id,))
+
+    return {
+        "vendedor": vendedor[0]["nombre"],
+        "total_inspecciones": len(inspecciones),
+        "historial": inspecciones
+    }
