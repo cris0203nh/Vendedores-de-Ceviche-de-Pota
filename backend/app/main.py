@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 from contextlib import contextmanager
 import sqlite3
+import uuid
 
 DB = Path(__file__).resolve().parent.parent / "ceviche_seguro.db"
 
@@ -134,7 +135,7 @@ class Proveedor(BaseModel):
     procedencia: str
 
 class Lote(BaseModel):
-    codigo: str
+    codigo: str = ""
     proveedor_id: int
     fecha_ingreso: str
     especie_declarada: str
@@ -266,13 +267,20 @@ def listar_proveedores():
 def crear_lote(data: Lote):
     if not rows("SELECT id FROM proveedores WHERE id=?", (data.proveedor_id,)):
         raise HTTPException(404, "Proveedor no encontrado")
+
+    codigo = f"LOTE-{uuid.uuid4().hex[:12].upper()}"
+
     id = insert(
         """INSERT INTO lotes(codigo,proveedor_id,fecha_ingreso,especie_declarada,
         cantidad,unidad,procedencia) VALUES(?,?,?,?,?,?,?)""",
-        (data.codigo,data.proveedor_id,data.fecha_ingreso,data.especie_declarada,
+        (codigo,data.proveedor_id,data.fecha_ingreso,data.especie_declarada,
          data.cantidad,data.unidad,data.procedencia)
     )
-    return {"id": id, "mensaje": "Lote registrado"}
+    return {
+        "id": id,
+        "codigo": codigo,
+        "mensaje": "Lote registrado correctamente"
+    }
 
 @app.get("/api/lotes")
 def listar_lotes():
