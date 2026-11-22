@@ -86,3 +86,80 @@ def test_hu05_rechazar_temperatura_no_numerica():
     })
 
     assert response.status_code == 422
+def test_hu05_alerta_temperatura_refrigerada_fuera_de_rango():
+    vendedor_id = crear_vendedor()
+
+    response = client.post("/api/inspecciones", json={
+        "vendedor_id": vendedor_id,
+        "inspector": "Inspector HU05",
+        "higiene": "Adecuada",
+        "temperatura": 6.0,
+        "conservacion": "Refrigerado"
+    })
+
+    assert response.status_code == 201
+    assert response.json()["resultado"] == "Alerta sanitaria"
+    assert response.json()["alerta"] is not None
+
+
+def test_hu05_alerta_temperatura_congelada_fuera_de_rango():
+    vendedor_id = crear_vendedor()
+
+    response = client.post("/api/inspecciones", json={
+        "vendedor_id": vendedor_id,
+        "inspector": "Inspector HU05",
+        "higiene": "Adecuada",
+        "temperatura": -15.0,
+        "conservacion": "Congelado"
+    })
+
+    assert response.status_code == 201
+    assert response.json()["resultado"] == "Alerta sanitaria"
+    assert response.json()["alerta"] is not None
+
+
+def test_hu05_temperatura_conforme_refrigerada():
+    vendedor_id = crear_vendedor()
+
+    response = client.post("/api/inspecciones", json={
+        "vendedor_id": vendedor_id,
+        "inspector": "Inspector HU05",
+        "higiene": "Adecuada",
+        "temperatura": 3.0,
+        "conservacion": "Refrigerado"
+    })
+
+    assert response.status_code == 201
+    assert response.json()["resultado"] == "Conforme"
+    assert response.json()["alerta"] is None
+
+
+def test_hu05_temperatura_conforme_congelada():
+    vendedor_id = crear_vendedor()
+
+    response = client.post("/api/inspecciones", json={
+        "vendedor_id": vendedor_id,
+        "inspector": "Inspector HU05",
+        "higiene": "Adecuada",
+        "temperatura": -20.0,
+        "conservacion": "Congelado"
+    })
+
+    assert response.status_code == 201
+    assert response.json()["resultado"] == "Conforme"
+    assert response.json()["alerta"] is None
+
+
+def test_hu05_rechazar_tipo_conservacion_invalido():
+    vendedor_id = crear_vendedor()
+
+    response = client.post("/api/inspecciones", json={
+        "vendedor_id": vendedor_id,
+        "inspector": "Inspector HU05",
+        "higiene": "Adecuada",
+        "temperatura": 3.0,
+        "conservacion": "Ambiente"
+    })
+
+    assert response.status_code == 422
+
