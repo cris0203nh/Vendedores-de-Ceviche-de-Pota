@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+﻿from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pathlib import Path
@@ -203,11 +203,11 @@ def consultar_vendedor(id: int):
         raise HTTPException(404, "Vendedor no encontrado")
     return result[0]
 
-# VDCP-7: Verificación de licencias
+# VDCP-7: VerificaciÃ³n de licencias
 @app.patch("/api/vendedores/{id}/licencia")
 def verificar_licencia(id: int, data: Licencia):
     if data.estado not in ["Vigente", "Observada", "Vencida", "Pendiente"]:
-        raise HTTPException(422, "Estado de licencia inválido")
+        raise HTTPException(422, "Estado de licencia invÃ¡lido")
     with database() as con:
         cur = con.execute("UPDATE vendedores SET licencia=? WHERE id=?", (data.estado,id))
         if not cur.rowcount:
@@ -219,13 +219,58 @@ def verificar_licencia(id: int, data: Licencia):
 def crear_inspeccion(data: Inspeccion):
     if not rows("SELECT id FROM vendedores WHERE id=?", (data.vendedor_id,)):
         raise HTTPException(404, "Vendedor no encontrado")
+
+    resultado = data.resultado
+    alerta = None
+
+    tipo = data.conservacion.strip().lower()
+
+    if data.temperatura is not None:
+        if "refriger" in tipo:
+            limite = 4.0
+            if data.temperatura > limite:
+                alerta = (
+                    f"Temperatura fuera de rango: {data.temperatura} ?C. "
+                    "El producto refrigerado debe mantenerse a 4 ?C o menos."
+                )
+
+        elif "congel" in tipo:
+            limite = -18.0
+            if data.temperatura > limite:
+                alerta = (
+                    f"Temperatura fuera de rango: {data.temperatura} ?C. "
+                    "El producto congelado debe mantenerse a -18 ?C o menos."
+                )
+
+        elif (
+            ("cadena" in tipo and ("frío" in tipo or "frio" in tipo))
+            or tipo == "adecuada"
+        ):
+            # Compatibilidad con las inspecciones anteriores de HU-04.
+            resultado = data.resultado
+
+        else:
+            raise HTTPException(
+                422,
+                "Tipo de conservación inválido. Use Refrigerado, Congelado o Cadena de frío."
+            )
+
+        if "refriger" in tipo or "congel" in tipo:
+            resultado = "Alerta sanitaria" if alerta else "Conforme"
+
     id = insert(
         """INSERT INTO inspecciones(vendedor_id,inspector,higiene,temperatura,
         conservacion,observaciones,resultado) VALUES(?,?,?,?,?,?,?)""",
         (data.vendedor_id,data.inspector,data.higiene,data.temperatura,
-         data.conservacion,data.observaciones,data.resultado)
+         data.conservacion,data.observaciones,resultado)
     )
-    return {"id": id, "mensaje": "Inspección registrada"}
+
+    return {
+        "id": id,
+        "mensaje": "Inspecci?n registrada",
+        "resultado": resultado,
+        "alerta": alerta
+    }
 
 @app.get("/api/inspecciones")
 def listar_inspecciones():
@@ -238,7 +283,7 @@ def listar_inspecciones():
 @app.post("/api/incumplimientos", status_code=201)
 def crear_incumplimiento(data: Incumplimiento):
     if not rows("SELECT id FROM inspecciones WHERE id=?", (data.inspeccion_id,)):
-        raise HTTPException(404, "Inspección no encontrada")
+        raise HTTPException(404, "InspecciÃ³n no encontrada")
     id = insert(
         "INSERT INTO incumplimientos(inspeccion_id,descripcion,evidencia) VALUES(?,?,?)",
         (data.inspeccion_id,data.descripcion,data.evidencia)
@@ -289,11 +334,11 @@ def listar_lotes():
         JOIN proveedores p ON p.id=l.proveedor_id ORDER BY l.id DESC
     """)
 
-# VDCP-13: Verificación de información del producto
+# VDCP-13: VerificaciÃ³n de informaciÃ³n del producto
 @app.patch("/api/lotes/{id}/verificacion")
 def verificar_lote(id: int, data: Verificacion):
     if data.verificacion not in ["Verificado", "Observado", "Pendiente"]:
-        raise HTTPException(422, "Resultado de verificación inválido")
+        raise HTTPException(422, "Resultado de verificaciÃ³n invÃ¡lido")
     with database() as con:
         cur = con.execute(
             "UPDATE lotes SET verificacion=?,observaciones=? WHERE id=?",
@@ -301,9 +346,9 @@ def verificar_lote(id: int, data: Verificacion):
         )
         if not cur.rowcount:
             raise HTTPException(404, "Lote no encontrado")
-    return {"mensaje": "Verificación actualizada"}
+    return {"mensaje": "VerificaciÃ³n actualizada"}
 
-# VDCP-14: Consulta pública de vendedores
+# VDCP-14: Consulta pÃºblica de vendedores
 @app.get("/api/publico/vendedores")
 def consulta_publica():
     return rows("""
@@ -320,7 +365,7 @@ def crear_reporte(data: Reporte):
     )
     return {"id": id, "codigo_seguimiento": f"REP-{id:05d}"}
 
-# VDCP-16: Gestión de reportes
+# VDCP-16: GestiÃ³n de reportes
 @app.get("/api/reportes")
 def listar_reportes():
     return rows("""
@@ -330,8 +375,8 @@ def listar_reportes():
 
 @app.patch("/api/reportes/{id}")
 def actualizar_reporte(id: int, data: ActualizarReporte):
-    if data.estado not in ["Recibido", "En revisión", "Atendido", "Rechazado"]:
-        raise HTTPException(422, "Estado de reporte inválido")
+    if data.estado not in ["Recibido", "En revisiÃ³n", "Atendido", "Rechazado"]:
+        raise HTTPException(422, "Estado de reporte invÃ¡lido")
     with database() as con:
         cur = con.execute(
             "UPDATE reportes SET estado=?,respuesta=? WHERE id=?",
@@ -396,3 +441,5 @@ def historial_inspecciones_vendedor(vendedor_id: int):
         "total_inspecciones": len(inspecciones),
         "historial": inspecciones
     }
+
+
