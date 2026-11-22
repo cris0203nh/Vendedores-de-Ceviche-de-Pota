@@ -1,4 +1,4 @@
-﻿
+
 from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
@@ -16,8 +16,8 @@ DATABASE = Path(__file__).resolve().parent.parent / "ceviche_seguro.db"
 
 app = FastAPI(
     title="CevicheSeguro API",
-    description="Trazabilidad y control sanitario de vendedores de ceviche de pota",
-    version="1.0.0",
+    description="Sistema de trazabilidad y control sanitario de vendedores de ceviche de pota",
+    version="1.0.0"
 )
 
 app.add_middleware(
@@ -26,7 +26,7 @@ app.add_middleware(
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
 
@@ -39,6 +39,7 @@ def database():
     con = sqlite3.connect(DATABASE)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
+
     try:
         yield con
         con.commit()
@@ -65,12 +66,12 @@ def insert(sql, params):
     except sqlite3.IntegrityError as exc:
         raise HTTPException(
             status_code=409,
-            detail="El registro ya existe o contiene una referencia inválida",
+            detail="El registro ya existe o contiene una referencia inválida"
         ) from exc
 
 
 # =========================================================
-# INICIALIZACIÓN DE BASE DE DATOS
+# INICIALIZACIÓN Y MIGRACIÓN DE BASE DE DATOS
 # =========================================================
 
 def initialize_database():
@@ -102,7 +103,7 @@ def initialize_database():
             "ubicacion": "ALTER TABLE vendedores ADD COLUMN ubicacion TEXT",
             "licencia": "ALTER TABLE vendedores ADD COLUMN licencia TEXT DEFAULT 'Pendiente'",
             "estado": "ALTER TABLE vendedores ADD COLUMN estado TEXT DEFAULT 'Activo'",
-            "created_at": "ALTER TABLE vendedores ADD COLUMN created_at DATETIME",
+            "created_at": "ALTER TABLE vendedores ADD COLUMN created_at DATETIME"
         }
 
         for column, sql in migrations.items():
@@ -110,6 +111,7 @@ def initialize_database():
                 con.execute(sql)
 
         con.executescript("""
+
             CREATE TABLE IF NOT EXISTS puestos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 vendedor_id INTEGER NOT NULL,
@@ -174,6 +176,7 @@ def initialize_database():
                 estado TEXT DEFAULT 'Pendiente',
                 FOREIGN KEY(inspeccion_id) REFERENCES inspecciones(id)
             );
+
         """)
 
 
@@ -188,7 +191,7 @@ class Vendedor(BaseModel):
     nombre: str = Field(min_length=2, max_length=120)
     documento: str = Field(pattern=r"^\d{8}$")
     telefono: str = ""
-    puesto: str = Field(min_length=2)
+    puesto: str = Field(min_length=2, max_length=120)
     ubicacion: str = ""
     licencia: str = "Pendiente"
 
@@ -278,9 +281,15 @@ def health():
 
 @app.post("/api/vendedores", status_code=201)
 def crear_vendedor(data: Vendedor):
+
     vendedor_id = insert("""
         INSERT INTO vendedores(
-            nombre, documento, telefono, puesto, ubicacion, licencia
+            nombre,
+            documento,
+            telefono,
+            puesto,
+            ubicacion,
+            licencia
         )
         VALUES (?, ?, ?, ?, ?, ?)
     """, (
@@ -294,19 +303,22 @@ def crear_vendedor(data: Vendedor):
 
     return {
         "id": vendedor_id,
-        "mensaje": "Vendedor registrado"
+        "mensaje": "Vendedor registrado correctamente"
     }
 
 
 @app.get("/api/vendedores")
 def listar_vendedores():
-    return rows(
-        "SELECT * FROM vendedores ORDER BY id DESC"
-    )
+    return rows("""
+        SELECT *
+        FROM vendedores
+        ORDER BY id DESC
+    """)
 
 
 @app.get("/api/vendedores/{id}")
 def consultar_vendedor(id: int):
+
     resultado = rows(
         "SELECT * FROM vendedores WHERE id = ?",
         (id,)
@@ -322,7 +334,7 @@ def consultar_vendedor(id: int):
 
 
 # =========================================================
-# VDCP-6 / HU-02: REGISTRO DE PUESTOS
+# VDCP-6 / HU-02: REGISTRO DE PUESTOS DE VENTA
 # =========================================================
 
 @app.post("/api/puestos", status_code=201)
@@ -379,6 +391,7 @@ def crear_puesto(data: Puesto):
 
 @app.get("/api/puestos")
 def listar_puestos():
+
     return rows("""
         SELECT
             p.id,
@@ -395,7 +408,7 @@ def listar_puestos():
 
 
 # =========================================================
-# VDCP-7: VERIFICACIÓN DE LICENCIAS
+# VDCP-7 / HU-03: VERIFICACIÓN DE LICENCIAS
 # =========================================================
 
 @app.patch("/api/vendedores/{id}/licencia")
@@ -404,7 +417,8 @@ def verificar_licencia(id: int, data: Licencia):
     estados_validos = [
         "Vigente",
         "Observada",
-        "Vencida"
+        "Vencida",
+        "Pendiente"
     ]
 
     if data.estado not in estados_validos:
@@ -414,8 +428,13 @@ def verificar_licencia(id: int, data: Licencia):
         )
 
     with database() as con:
+
         cursor = con.execute(
-            "UPDATE vendedores SET licencia = ? WHERE id = ?",
+            """
+            UPDATE vendedores
+            SET licencia = ?
+            WHERE id = ?
+            """,
             (data.estado, id)
         )
 
@@ -426,7 +445,8 @@ def verificar_licencia(id: int, data: Licencia):
             )
 
     return {
-        "mensaje": "Licencia actualizada",
+        "mensaje": "Licencia actualizada correctamente",
+        "vendedor_id": id,
         "estado": data.estado
     }
 
@@ -472,14 +492,17 @@ def crear_inspeccion(data: Inspeccion):
 
     return {
         "id": inspeccion_id,
-        "mensaje": "Inspección registrada"
+        "mensaje": "Inspección registrada correctamente"
     }
 
 
 @app.get("/api/inspecciones")
 def listar_inspecciones():
+
     return rows("""
-        SELECT i.*, v.nombre AS vendedor
+        SELECT
+            i.*,
+            v.nombre AS vendedor
         FROM inspecciones i
         INNER JOIN vendedores v
             ON v.id = i.vendedor_id
@@ -526,9 +549,12 @@ def crear_incumplimiento(data: Incumplimiento):
 
 @app.get("/api/incumplimientos")
 def listar_incumplimientos():
-    return rows(
-        "SELECT * FROM incumplimientos ORDER BY id DESC"
-    )
+
+    return rows("""
+        SELECT *
+        FROM incumplimientos
+        ORDER BY id DESC
+    """)
 
 
 # =========================================================
@@ -561,9 +587,12 @@ def crear_proveedor(data: Proveedor):
 
 @app.get("/api/proveedores")
 def listar_proveedores():
-    return rows(
-        "SELECT * FROM proveedores ORDER BY id DESC"
-    )
+
+    return rows("""
+        SELECT *
+        FROM proveedores
+        ORDER BY id DESC
+    """)
 
 
 # =========================================================
@@ -613,8 +642,11 @@ def crear_lote(data: Lote):
 
 @app.get("/api/lotes")
 def listar_lotes():
+
     return rows("""
-        SELECT l.*, p.nombre AS proveedor
+        SELECT
+            l.*,
+            p.nombre AS proveedor
         FROM lotes l
         INNER JOIN proveedores p
             ON p.id = l.proveedor_id
@@ -642,9 +674,11 @@ def verificar_lote(id: int, data: Verificacion):
         )
 
     with database() as con:
+
         cursor = con.execute("""
             UPDATE lotes
-            SET verificacion = ?, observaciones = ?
+            SET verificacion = ?,
+                observaciones = ?
             WHERE id = ?
         """, (
             data.verificacion,
@@ -669,6 +703,7 @@ def verificar_lote(id: int, data: Verificacion):
 
 @app.get("/api/publico/vendedores")
 def consulta_publica():
+
     return rows("""
         SELECT
             id,
@@ -691,6 +726,7 @@ def consulta_publica():
 def crear_reporte(data: Reporte):
 
     if data.vendedor_id is not None:
+
         vendedor = rows(
             "SELECT id FROM vendedores WHERE id = ?",
             (data.vendedor_id,)
@@ -727,6 +763,7 @@ def crear_reporte(data: Reporte):
 
 @app.get("/api/reportes")
 def listar_reportes():
+
     return rows("""
         SELECT
             r.*,
@@ -755,9 +792,11 @@ def actualizar_reporte(id: int, data: ActualizarReporte):
         )
 
     with database() as con:
+
         cursor = con.execute("""
             UPDATE reportes
-            SET estado = ?, respuesta = ?
+            SET estado = ?,
+                respuesta = ?
             WHERE id = ?
         """, (
             data.estado,
@@ -782,6 +821,7 @@ def actualizar_reporte(id: int, data: ActualizarReporte):
 
 @app.get("/api/dashboard")
 def dashboard():
+
     return {
         "vendedores": rows(
             "SELECT COUNT(*) AS total FROM vendedores"
@@ -805,6 +845,5 @@ def dashboard():
 
         "reportes_pendientes": rows(
             "SELECT COUNT(*) AS total FROM reportes WHERE estado = 'Recibido'"
-        )[0]["total"],
+        )[0]["total"]
     }
-
