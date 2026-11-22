@@ -1,0 +1,80 @@
+﻿name: "04 - Release Deploy and Monitor"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release - Production Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: frontend
+        run: npm ci
+
+      - name: Construir version de produccion
+        working-directory: frontend
+        run: npm run build
+
+      - name: Publicar artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: cevicheseguro-frontend
+          path: frontend/dist/
+          retention-days: 15
+
+  deploy:
+    name: Deploy - Deployment Hook
+    runs-on: ubuntu-latest
+    needs: release
+    if: vars.ENABLE_DEPLOY == 'true'
+
+    steps:
+      - name: Ejecutar despliegue
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$DEPLOY_HOOK_URL" ]; then
+            echo "Falta configurar DEPLOY_HOOK_URL"
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            --request POST "$DEPLOY_HOOK_URL"
+
+  monitor:
+    name: Monitor - API Health Check
+    runs-on: ubuntu-latest
+    needs: release
+
+    if: always() && vars.BACKEND_HEALTH_URL != ''
+
+    steps:
+      - name: Comprobar disponibilidad de API
+        env:
+          HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error \
+              "$HEALTH_URL"; then
+              echo "API disponible"
+              exit 0
+            fi
+            echo "Intento $attempt fallido. Reintentando..."
+            sleep 10
+          done
+          echo "La API no responde correctamente"
+          exit 1
