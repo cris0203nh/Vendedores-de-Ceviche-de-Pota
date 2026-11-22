@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 
 const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -43,7 +43,7 @@ function App(){
   const [error,setError] = useState("");
   const [loading,setLoading] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try{
       const url = page==="dashboard" ? "/api/dashboard" : endpoints[page];
       const response = await fetch(API+url);
@@ -52,14 +52,23 @@ function App(){
       if(page==="dashboard") setDashboard(result);
       else setData(result);
     }catch(e){setError(e.message);}
-  };
+  },[page]);
 
   useEffect(()=>{
+    const task = window.setTimeout(() => {
+      void load();
+    }, 0);
+
+    return () => window.clearTimeout(task);
+  },[load]);
+
+  const navigate = (nextPage) => {
+    setPage(nextPage);
     setData([]);
     setError("");
-    load();
-    setForm(empty[page] ? {...empty[page]} : {});
-  },[page]);
+    setMessage("");
+    setForm(empty[nextPage] ? {...empty[nextPage]} : {});
+  };
 
   const change = (e)=>setForm({...form,[e.target.name]:e.target.value});
 
@@ -142,7 +151,7 @@ function App(){
     <aside className="sidebar">
       <div className="brand"><span>●</span> CevicheSeguro</div>
       <p className="side-label">GESTIÓN DEL SISTEMA</p>
-      {sections.map(([id,label])=><button key={id} className={page===id?"nav active":"nav"} onClick={()=>setPage(id)}>{label}</button>)}
+      {sections.map(([id,label])=><button key={id} className={page===id?"nav active":"nav"} onClick={()=>navigate(id)}>{label}</button>)}
       <div className="side-footer">Trazabilidad y control sanitario</div>
     </aside>
     <main className="main">
