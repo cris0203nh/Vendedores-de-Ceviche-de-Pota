@@ -147,6 +147,15 @@ class Verificacion(BaseModel):
     verificacion: str
     observaciones: str = ""
 
+class VerificacionDocumental(BaseModel):
+    documento_tipo: str = Field(min_length=2, max_length=100)
+    documento_referencia: str = Field(min_length=2, max_length=200)
+    especie_documentada: str = Field(min_length=2, max_length=100)
+    procedencia_documentada: str = Field(min_length=2, max_length=200)
+    verificacion: str = "Verificado"
+    observaciones: str = ""
+
+
 class Reporte(BaseModel):
     vendedor_id: int | None = None
     descripcion: str
@@ -414,6 +423,98 @@ def verificar_lote(id: int, data: Verificacion):
     return {"mensaje": "VerificaciÃ³n actualizada"}
 
 # VDCP-14: Consulta pÃºblica de vendedores
+
+@app.post("/api/lotes/{id}/verificaciones", status_code=201)
+def crear_verificacion_documental(id: int, data: VerificacionDocumental):
+
+    lote = rows("SELECT * FROM lotes WHERE id=?", (id,))
+
+    if not lote:
+        raise HTTPException(404, "Lote no encontrado")
+
+    if data.verificacion not in ["Verificado", "Observado", "Pendiente"]:
+        raise HTTPException(422, "Resultado de verificacion invalido")
+
+    actual = lote[0]
+    diferencias = []
+
+    if actual["especie_declarada"].strip().casefold() != data.especie_documentada.strip().casefold():
+        diferencias.append(
+            f"Especie declarada: {actual['especie_declarada']}; "
+            f"especie documentada: {data.especie_documentada}"
+        )
+
+    if actual["procedencia"].strip().casefold() != data.procedencia_documentada.strip().casefold():
+        diferencias.append(
+            f"Procedencia declarada: {actual['procedencia']}; "
+            f"procedencia documentada: {data.procedencia_documentada}"
+        )
+
+    observaciones = data.observaciones.strip()
+
+    if diferencias:
+        observaciones = "Inconsistencias detectadas: " + "; ".join(diferencias)
+        if data.observaciones.strip():
+            observaciones += ". Observacion del inspector: " + data.observaciones.strip()
+        resultado = "Observado"
+    else:
+        resultado = data.verificacion
+
+    with database() as con:
+        cur = con.execute("""
+            INSERT INTO verificaciones_lotes(
+                lote_id, documento_tipo, documento_referencia,
+                especie_documentada, procedencia_documentada,
+                resultado, observaciones
+            ) VALUES(?,?,?,?,?,?,?)
+        """, (
+            id,
+            data.documento_tipo,
+            data.documento_referencia,
+            data.especie_documentada,
+            data.procedencia_documentada,
+            resultado,
+            observaciones
+        ))
+
+        verificacion_id = cur.lastrowid
+
+        con.execute(
+            "UPDATE lotes SET verificacion=?, observaciones=? WHERE id=?",
+            (resultado, observaciones, id)
+        )
+
+    return {
+        "id": verificacion_id,
+        "lote_id": id,
+        "resultado": resultado,
+        "observaciones": observaciones,
+        "mensaje": "Verificacion documental registrada correctamente"
+    }
+
+
+@app.get("/api/lotes/{id}/verificaciones")
+def historial_verificaciones_lote(id: int):
+
+    lote = rows("SELECT id, codigo FROM lotes WHERE id=?", (id,))
+
+    if not lote:
+        raise HTTPException(404, "Lote no encontrado")
+
+    historial = rows("""
+        SELECT * FROM verificaciones_lotes
+        WHERE lote_id=?
+        ORDER BY created_at DESC, id DESC
+    """, (id,))
+
+    return {
+        "lote_id": id,
+        "codigo": lote[0]["codigo"],
+        "total_verificaciones": len(historial),
+        "historial": historial
+    }
+
+
 @app.get("/api/publico/vendedores")
 def consulta_publica():
     return rows("""
@@ -481,6 +582,26 @@ def migrate_database():
                 con.execute(sql)
 
 migrate_database()
+
+def initialize_verificaciones_lotes():
+    with database() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS verificaciones_lotes(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lote_id INTEGER NOT NULL,
+                documento_tipo TEXT NOT NULL,
+                documento_referencia TEXT NOT NULL,
+                especie_documentada TEXT NOT NULL,
+                procedencia_documentada TEXT NOT NULL,
+                resultado TEXT NOT NULL,
+                observaciones TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(lote_id) REFERENCES lotes(id)
+            )
+        """)
+
+initialize_verificaciones_lotes()
+
 
 
 @app.get("/api/vendedores/{vendedor_id}/inspecciones")
