@@ -404,8 +404,7 @@ def verificar_licencia(id: int, data: Licencia):
     estados_validos = [
         "Vigente",
         "Observada",
-        "Vencida",
-        "Pendiente"
+        "Vencida"
     ]
 
     if data.estado not in estados_validos:
@@ -808,3 +807,4 @@ def dashboard():
             "SELECT COUNT(*) AS total FROM reportes WHERE estado = 'Recibido'"
         )[0]["total"],
     }
+
